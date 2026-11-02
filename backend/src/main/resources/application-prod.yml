@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+
+app:
+  demo-data: false
+  dev-expose-reset-token: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    root: WARN
+    com.smartpark: INFO

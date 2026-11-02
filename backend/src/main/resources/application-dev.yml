@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/smartpark}
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    clean-disabled: true
+
+app:
+  demo-data: ${SEED_DEMO_DATA:true}
+  dev-expose-reset-token: ${DEV_EXPOSE_RESET_TOKEN:true}
+
+logging:
+  level:
+    com.smartpark: DEBUG

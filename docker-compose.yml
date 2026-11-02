@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartpark-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartpark}
+      POSTGRES_USER: ${POSTGRES_USER:-smartpark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartpark_dev_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - smartpark_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartpark} -d ${POSTGRES_DB:-smartpark}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  adminer:
+    image: adminer:4
+    container_name: smartpark-adminer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ADMINER_PORT:-8085}:8080"
+
+volumes:
+  smartpark_pgdata:
