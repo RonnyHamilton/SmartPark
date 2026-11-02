@@ -1,60 +1,86 @@
 # SmartPark: Security Architecture & Vulnerability Mitigation Report
+## Comprehensive Security Defense & Vulnerability Assessment
 
-## 1. Threat Modeling & Security Posture
-
-SmartPark was developed according to OWASP Top 10 recommendations and defensive software engineering best practices. The application enforces security at three distinct layers:
-1. **Network & Transport Layer:** CORS origin whitelisting, HTTP-only secure cookie attributes.
-2. **Application & Framework Layer:** Spring Security 6 filter chain, JWT verification, BCrypt password hashing, method-level authorization (`@PreAuthorize`), and IDOR object ownership checks.
-3. **Database Layer:** Parameterized SQL queries via Spring Data JPA / Hibernate, check constraints, foreign key cascades, and mathematical GiST exclusion constraints.
+**Semester 3 Mini Project Documentation**  
+**Frameworks:** Spring Security 6, BCrypt, HMAC-SHA256, PostgreSQL 16 Kernel Constraints  
+**Standards:** OWASP Top 10 Compliance  
 
 ---
 
-## 2. Core Security Mitigations
+## 1. Security Architecture Overview
 
-### 2.1 Defense Against Broken Authentication & Session Hijacking
-- **Cryptographic Password Storage:** Passwords are never stored in plaintext. They are salted and hashed using **BCrypt** with an algorithmic cost factor of 12.
-- **Short-Lived Access Tokens:** Stateless access JWTs have a 15-minute lifespan (`900` seconds). If an access token is intercepted, the exposure window is minimal.
-- **Single-Use Refresh Token Rotation:** Refresh tokens are 64-character high-entropy cryptographic strings. Only the **SHA-256 hash** of the token is stored in the database (`refresh_tokens.token_hash`). When a refresh token is presented:
-  1. The server locates the token by hash.
-  2. If already revoked, the server flags a potential replay attack.
-  3. The token is immediately marked `revoked_at = NOW()`.
-  4. A fresh token is generated, stored, and sent back to the client.
-- **XSS-Immune Token Storage:** The refresh token is transmitted exclusively inside an `HttpOnly`, `SameSite=Lax` cookie. Client-side JavaScript has zero access to this cookie, eliminating theft via Cross-Site Scripting (XSS).
+SmartPark implements defense-in-depth across three architectural boundaries:
+1. **Network & Transport Layer:** Whitelisted CORS origins, `HttpOnly`, `SameSite=Strict` cookie attributes, and TLS/HTTPS transport readiness.
+2. **Application & Framework Layer:** Spring Security 6 filter chain, HMAC-SHA256 stateless access tokens, single-use rotating refresh tokens, method-level authorization (`@PreAuthorize`), and IDOR ownership guards.
+3. **Database Layer:** 100% parameterized SQL execution via Spring Data JPA / Hibernate, check constraints, foreign key restrictions, and kernel-level GiST exclusion constraints.
 
-### 2.2 Defense Against Brute-Force & Credential Stuffing
-- **Exponential Account Lockout:** The `users` table tracks `failed_login_attempts`.
-  - On each failed authentication attempt for an email, `failed_login_attempts` increments by 1.
-  - When the counter reaches **5**, the user account is locked by setting `locked_until = NOW() + INTERVAL '15 minutes'`.
-  - Further login attempts during the lockout window immediately fail with HTTP 423 Locked / 401 Unauthorized, logging an audit alert.
-  - On any successful login, `failed_login_attempts` is reset to 0.
+---
 
-### 2.3 Defense Against Broken Object Level Authorization (IDOR)
-An Insecure Direct Object Reference occurs when a malicious user manipulates a URL parameter (e.g., `GET /api/v1/bookings/{id}`) to view or cancel another driver's reservation.
-- **Mitigation in SmartPark:** The `BookingService` verifies that the caller owns the resource before executing reads or mutations:
-```java
-User caller = authService.getCurrentAuthenticatedUser();
-Booking booking = bookingRepository.findById(bookingId)
-    .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
+## 2. Core Security Controls & Vulnerability Mitigations
 
-if (!booking.getUserId().equals(caller.getId()) && caller.getRole() != Role.ADMIN) {
-    auditService.logEvent(caller.getId(), "UNAUTHORIZED_BOOKING_ACCESS_ATTEMPT", "BOOKING", bookingId.toString());
-    throw new AccessDeniedException("Access denied: You do not own this booking");
-}
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    SMARTPARK SECURITY CONTROLS                                          |
++--------------------------+-------------------------------------+----------------------------------------+
+| Attack Vector / Threat   | SmartPark Defense Mechanism         | Engineering Implementation             |
++--------------------------+-------------------------------------+----------------------------------------+
+| Credential Exposure      | Salted BCrypt (Work Factor 12)      | AuthService.java, SecurityConfig.java  |
+| XSS Token Theft          | HttpOnly, SameSite=Strict Cookie    | AuthController.java                    |
+| Token Replay Attacks     | Single-Use Refresh Token Rotation   | RefreshTokenRepository.java            |
+| Brute-Force / Stuffing   | 5-Attempt Lockout for 15 minutes    | users.locked_until, failed_attempts    |
+| Object Tampering (IDOR)  | Principal Ownership Verification    | BookingService.java, ProfileController |
+| SQL Injection (SQLi)     | JPA Parameterized Queries (0 native)| JpaRepository<T, ID>                   |
+| Double-Booking Race Cond | PostgreSQL GiST Exclusion Operator  | excl_bookings_slot_time (Postgres 16)  |
+| Forensic Accountability  | Append-Only Immutable Audit Log     | audit_logs (JSONB metadata)            |
++--------------------------+-------------------------------------+----------------------------------------+
 ```
 
-### 2.4 Defense Against SQL Injection (SQLi)
-- All database queries are executed via **Spring Data JPA repositories** and Hibernate ORM utilizing **parameterized queries** with bound values.
-- Dynamic native queries are never constructed using string concatenation (`"SELECT ... WHERE id = " + id`).
-- PostgreSQL strongly types all inputs (UUIDs, timestamps, integers), rejecting malformed injection attempts at the protocol parser level.
+---
 
-### 2.5 Defense Against Concurrency Race Conditions (Double Bookings)
-- Traditional locking (`synchronized` blocks) fails across clustered application instances.
-- SmartPark delegates concurrency resolution to the **PostgreSQL 16 kernel** using a Generalized Search Tree (`GiST`) exclusion constraint (`excl_bookings_slot_time`). Overlapping intervals on the same bay are rejected by the storage engine before any row can commit.
+## 3. Deep-Dive Security Implementations
 
-### 2.6 Cross-Origin Resource Sharing (CORS) Security
-- Configured via `WebConfig.java` to whitelist only explicitly permitted development and production origins (e.g., `http://localhost:5173`).
-- Wildcards (`Access-Control-Allow-Origin: *`) are explicitly prohibited when handling authenticated credentials.
+### 3.1 Authentication & Token Lifecycle
+- **Password Security:** Credentials hashed using BCrypt with 12 rounds of salting. Plaintext passwords never touch application logs or persistent storage.
+- **Stateless Access JWT:** Issued with an ephemeral 15-minute lifespan (`900` seconds). Signed using HMAC-SHA256 with an enterprise 256-bit secret key.
+- **Single-Use Refresh Token Rotation:**
+  - Token is a 64-character cryptographically random string generated via `SecureRandom`.
+  - Only the SHA-256 hash is persisted in `refresh_tokens.token_hash`.
+  - Upon presentation, the existing token is atomically invalidated (`revoked_at = now()`) and a fresh token is issued.
+  - Stored exclusively in an `HttpOnly`, `SameSite=Strict` cookie, rendering it inaccessible to JavaScript and immune to XSS theft.
 
-### 2.7 Security & Operational Audit Logging
-- Every administrative action, booking creation, cancellation, gate check-out, and failed authentication is permanently recorded in `audit_logs`.
-- Audit logs contain the actor's UUID, event category, affected resource ID, timestamp, and JSON metadata, facilitating forensic analysis.
+### 3.2 Brute-Force Rate Limiting & Account Lockout
+- Consecutive failed password attempts increment `users.failed_login_attempts`.
+- Upon 5 consecutive failures, the account is locked for 15 minutes:
+  ```java
+  user.setFailedLoginAttempts(user.getFailedLoginAttempts() + 1);
+  if (user.getFailedLoginAttempts() >= 5) {
+      user.setLockedUntil(Instant.now().plus(Duration.ofMinutes(15)));
+  }
+  ```
+- Any subsequent attempt during the lockout window is rejected with HTTP 401 (`"Account is temporarily locked. Try again later."`).
+- Successful authentication resets the counter to 0.
+
+### 3.3 Broken Object Level Authorization (IDOR) Defense
+- To prevent drivers from viewing, modifying, or cancelling reservations belonging to other customers:
+  ```java
+  User caller = currentUser.entity();
+  Booking booking = bookingRepository.findById(bookingId)
+      .orElseThrow(() -> new NotFoundException("Booking not found."));
+
+  if (!booking.getUser().getId().equals(caller.getId()) && caller.getRole() != Role.ADMIN) {
+      throw new NotFoundException("Booking not found.");
+  }
+  ```
+  *(Note: Returns HTTP 404 rather than 403 to avoid leaking the existence of other records).*
+
+### 3.4 SQL Injection Immunity
+- 100% of queries use Spring Data JPA repository method queries and JPQL queries with named parameters (`:param`).
+- Zero string concatenation in query construction.
+- Strict database-level type checking on UUIDs, dates, and enums prevents SQL syntax alteration.
+
+### 3.5 Spatio-Temporal Concurrency Protection
+- Dual-layer defense combining Hibernate `@Version` optimistic locking with PostgreSQL GiST exclusion constraint (`excl_bookings_slot_time`).
+- Evaluates temporal range overlap via PostgreSQL `tstzrange` and `&&` operator at transaction commit time.
+
+### 3.6 Structured Audit Trail
+- Every critical mutation (registrations, logins, password changes, booking creations, cancellations, gate check-outs, overstay transitions, admin slot overrides) is logged to `audit_logs` with actor ID, action code, resource ID, and structured JSONB metadata.

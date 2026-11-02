@@ -1,27 +1,35 @@
 # SmartPark: REST API Reference & Specification
+## Comprehensive RESTful API Contract & Endpoint Reference
 
-All API endpoints are hosted beneath base path `/api/v1`. 
+**Semester 3 Mini Project Documentation**  
+**API Base Path:** `/api/v1`  
+**Authentication Scheme:** Bearer JWT in `Authorization` header (`HS256`) + `HttpOnly` Cookie Refresh Tokens  
 
 ---
 
-## Standard Response Envelopes & Error Model
+## 1. Response Models & Error Handling
 
-### Success Envelope
-For resource creation and queries:
+### 1.1 Success Response Envelope
+All successful resource retrieval and mutation responses return clean, typed JSON representations. Paginated collections follow the standard `PageResponse<T>` format:
+
 ```json
 {
-  "id": "c890242d-13cc-40ce-822e-8fee905f3be1",
-  "bookingReference": "SP-ZW4SDGCB",
-  "status": "CONFIRMED",
-  "priceAmount": 160.00,
-  "currency": "INR"
+  "content": [ ... ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 52,
+  "totalPages": 3,
+  "first": true,
+  "last": false
 }
 ```
 
-### Standard RFC 7807 Problem Detail (Error Envelope)
+### 1.2 RFC 7807 Standardized Error Detail
+Exceptions are intercepted globally via `GlobalExceptionHandler` and rendered in RFC 7807 Problem Detail format:
+
 ```json
 {
-  "timestamp": "2026-11-01T12:53:46.330Z",
+  "timestamp": "2026-11-02T10:15:30.412Z",
   "status": 409,
   "error": "Conflict",
   "message": "Parking slot G-01 is already reserved for the selected time window",
@@ -29,13 +37,24 @@ For resource creation and queries:
 }
 ```
 
+#### HTTP Status Code Conventions
+- `200 OK` — Successful query or idempotent mutation.
+- `201 Created` — Resource successfully created (`Location` header populated).
+- `204 No Content` — Deletion successful; empty body.
+- `400 Bad Request` — Request validation failure (DTO field constraint breached).
+- `401 Unauthorized` — Missing or invalid authentication token.
+- `403 Forbidden` — Access denied (insufficient role privileges or origin rejected).
+- `404 Not Found` — Requested entity ID does not exist.
+- `409 Conflict` — Business rule conflict (e.g., slot already reserved, overstay conflict).
+- `429 Too Many Requests` — Rate limit exceeded (brute-force defense).
+
 ---
 
-## 1. Authentication Endpoints (`/api/v1/auth`)
+## 2. Authentication & Identity Endpoints (`/api/v1/auth`)
 
-### 1.1 Register Account
-- **Endpoint:** `POST /api/v1/auth/register`
-- **Access:** Public
+### 2.1 Register New User
+- **Method / Path:** `POST /api/v1/auth/register`
+- **Access Level:** Public
 - **Request Body:**
 ```json
 {
@@ -46,13 +65,13 @@ For resource creation and queries:
 }
 ```
 - **Responses:**
-  - `201 Created`: User successfully registered.
+  - `200 OK`: Returns access JWT and profile; sets `smartpark_refresh` cookie.
   - `400 Bad Request`: Validation failure (weak password, invalid email format).
-  - `409 Conflict`: Email already in use.
+  - `409 Conflict`: Email already registered.
 
-### 1.2 User Login
-- **Endpoint:** `POST /api/v1/auth/login`
-- **Access:** Public
+### 2.2 Authenticate / Sign In
+- **Method / Path:** `POST /api/v1/auth/login`
+- **Access Level:** Public
 - **Request Body:**
 ```json
 {
@@ -60,7 +79,7 @@ For resource creation and queries:
   "password": "Demo@12345!"
 }
 ```
-- **Response Headers:** Sets `Set-Cookie: smartpark_refresh=<token>; HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age=604800`
+- **Response Headers:** `Set-Cookie: smartpark_refresh=<token>; Path=/api/v1/auth; HttpOnly; SameSite=Strict; Max-Age=604800`
 - **Response Body (`200 OK`):**
 ```json
 {
@@ -71,201 +90,289 @@ For resource creation and queries:
     "id": "d8dc15e7-de5e-44c6-951e-dd9d220d8b5b",
     "name": "Maya Kapoor",
     "email": "demo@smartpark.local",
-    "role": "USER"
+    "role": "USER",
+    "accountStatus": "ACTIVE",
+    "accessibilityRequired": false
   }
 }
 ```
 
-### 1.3 Rotate Refresh Token
-- **Endpoint:** `POST /api/v1/auth/refresh`
-- **Access:** Public (Requires `smartpark_refresh` cookie)
-- **Responses:**
-  - `200 OK`: Returns new access token and updates refresh cookie.
-  - `401 Unauthorized`: Missing or revoked refresh token.
-
-### 1.4 User Logout
-- **Endpoint:** `POST /api/v1/auth/logout`
-- **Access:** Authenticated
-- **Response (`204 No Content`):** Revokes refresh token in database and clears HTTP cookie.
-
-### 1.5 Get Authenticated Profile
-- **Endpoint:** `GET /api/v1/auth/me`
-- **Access:** Authenticated (`Bearer <token>`)
-- **Response (`200 OK`):** Current user object.
-
----
-
-## 2. Facility Endpoints (`/api/v1/facilities`)
-
-### 2.1 Search Facilities
-- **Endpoint:** `GET /api/v1/facilities`
-- **Access:** Public
-- **Query Parameters:**
-  - `city` (string, optional) — Filter by city (e.g., `'Pune'`).
-  - `search` (string, optional) — Keyword filter on name or address.
-- **Response (`200 OK`):** List of active facilities with operating hours and coordinate locations.
-
-### 2.2 Facility Floor & Bay Catalog
-- **Endpoint:** `GET /api/v1/facilities/{id}/floors`
-- **Access:** Public
+### 2.3 Rotate Refresh Token
+- **Method / Path:** `POST /api/v1/auth/refresh`
+- **Access Level:** Public (Requires `smartpark_refresh` cookie)
 - **Response (`200 OK`):**
 ```json
-[
-  {
-    "id": "11111111-0001-4000-8000-000000000001",
-    "name": "Ground",
-    "floorNumber": 0,
-    "slots": [
-      {
-        "id": "11111111-0001-4000-8000-000000000011",
-        "slotCode": "G-01",
-        "slotType": "STANDARD",
-        "hasEvCharger": false,
-        "isAccessible": false,
-        "widthM": 2.40,
-        "lengthM": 5.00,
-        "status": "AVAILABLE",
-        "layoutX": 1,
-        "layoutY": 1
-      }
-    ]
-  }
-]
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+  "expiresInSeconds": 900
+}
 ```
 
-### 2.3 Query Slot Availability
-- **Endpoint:** `GET /api/v1/facilities/{id}/availability`
-- **Access:** Public
-- **Query Parameters:**
-  - `startTime` (ISO-8601 string, required) — e.g. `2026-11-02T10:00:00Z`
-  - `endTime` (ISO-8601 string, required) — e.g. `2026-11-02T14:00:00Z`
-- **Response (`200 OK`):** Returns array of available `slotId` strings for that specific interval.
+### 2.4 User Sign Out / Logout
+- **Method / Path:** `POST /api/v1/auth/logout`
+- **Access Level:** Authenticated
+- **Response (`200 OK`):** Clears `smartpark_refresh` cookie and revokes token hash in database.
 
----
+### 2.5 Retrieve Current Identity
+- **Method / Path:** `GET /api/v1/auth/me`
+- **Access Level:** Authenticated (`Bearer <token>`)
+- **Response (`200 OK`):** Authenticated user profile DTO.
 
-## 3. Booking & Reservation Endpoints (`/api/v1/bookings`)
-
-### 3.1 Create Reservation
-- **Endpoint:** `POST /api/v1/bookings`
-- **Access:** Authenticated (`ROLE_USER` / `ROLE_ADMIN`)
+### 2.6 Forgot Password Request
+- **Method / Path:** `POST /api/v1/auth/forgot-password`
+- **Access Level:** Public
 - **Request Body:**
 ```json
 {
-  "slotId": "11111111-0001-4000-8000-000000000011",
-  "vehicleId": "5a14a1ef-6915-4b32-b2ea-7a07511ca3a2",
-  "startTime": "2026-11-02T10:00:00Z",
-  "endTime": "2026-11-02T12:00:00Z"
+  "email": "demo@smartpark.local"
 }
 ```
-- **Responses:**
-  - `201 Created`:
-    ```json
-    {
-      "id": "c890242d-13cc-40ce-822e-8fee905f3be1",
-      "bookingReference": "SP-ZW4SDGCB",
-      "facilityName": "Airport Transit Hub",
-      "slotCode": "G-01",
-      "vehicleRegistration": "MH 12 AB 3456",
-      "startTime": "2026-11-02T10:00:00Z",
-      "endTime": "2026-11-02T12:00:00Z",
-      "status": "CONFIRMED",
-      "priceAmount": 160.00,
-      "currency": "INR"
-    }
-    ```
-  - `400 Bad Request`: Vehicle dimensions too large for bay or duration invalid.
-  - `409 Conflict`: Slot already booked by another driver for requested window.
+- **Response (`200 OK`):** Confirms email dispatch with hashed reset token generated in database.
 
-### 3.2 List User Bookings
-- **Endpoint:** `GET /api/v1/bookings`
-- **Access:** Authenticated
-- **Response (`200 OK`):** List of bookings owned by the authenticated caller.
-
-### 3.3 Cancel Reservation
-- **Endpoint:** `POST /api/v1/bookings/{id}/cancel`
-- **Access:** Authenticated (Owner or Admin)
+### 2.7 Reset Password
+- **Method / Path:** `POST /api/v1/auth/reset-password`
+- **Access Level:** Public
 - **Request Body:**
 ```json
 {
-  "reason": "Plans changed"
+  "token": "a1b2c3d4e5f6...",
+  "newPassword": "NewStrongPassword123!"
 }
 ```
-- **Response (`200 OK`):** Updated booking record with `status: "CANCELLED"`.
+- **Response (`200 OK`):** Password updated successfully.
 
----
-
-## 4. Gate Check-In & Departure Endpoints
-
-### 4.1 Retrieve Check-In QR Ticket
-- **Endpoint:** `GET /api/v1/bookings/{id}/qr-code`
-- **Access:** Authenticated (Owner or Admin)
-- **Response (`200 OK`):** Returns digital QR verification payload and human-readable reference.
-
-### 4.2 Gate Barrier Arrival Check-In
-- **Endpoint:** `POST /api/v1/bookings/{id}/check-in`
-- **Access:** Authenticated (`ROLE_ADMIN` or authorized gate operator)
+### 2.8 In-Session Password Change
+- **Method / Path:** `POST /api/v1/auth/change-password`
+- **Access Level:** Authenticated
 - **Request Body:**
 ```json
 {
-  "verificationMethod": "QR"
+  "currentPassword": "OldPassword123!",
+  "newPassword": "NewStrongPassword123!"
 }
 ```
-- **Response (`200 OK`):** Transitions booking to `ACTIVE` and creates `check_ins` record.
-
-### 4.3 Gate Barrier Departure Check-Out
-- **Endpoint:** `POST /api/v1/bookings/{id}/check-out`
-- **Access:** Authenticated (`ROLE_ADMIN` or authorized gate operator)
-- **Response (`200 OK`):** Transitions booking to `COMPLETED` and sets `check_out_time`.
+- **Response (`200 OK`):** Password changed; previous refresh tokens invalidated.
 
 ---
 
-## 5. Vehicle Endpoints (`/api/v1/vehicles`)
+## 3. User Profile & Activity Endpoints (`/api/v1/users/me`)
 
-### 5.1 Register Vehicle
-- **Endpoint:** `POST /api/v1/vehicles`
-- **Access:** Authenticated
+### 3.1 Get Profile
+- **Method / Path:** `GET /api/v1/users/me`
+- **Access Level:** Authenticated
+
+### 3.2 Update Profile
+- **Method / Path:** `PATCH /api/v1/users/me`
+- **Access Level:** Authenticated (`ROLE_USER` / `ROLE_ADMIN`)
+- **Request Body:**
+```json
+{
+  "name": "Maya Kapoor",
+  "accessibilityRequired": true
+}
+```
+- **Response (`200 OK`):** Updated user profile.
+
+### 3.3 Get Personal Activity Log
+- **Method / Path:** `GET /api/v1/users/me/activity`
+- **Access Level:** Authenticated
+- **Response (`200 OK`):** List of recent user actions logged in the system audit trail.
+
+---
+
+## 4. Vehicle Fleet Endpoints (`/api/v1/vehicles`)
+
+### 4.1 List User Vehicles
+- **Method / Path:** `GET /api/v1/vehicles`
+- **Access Level:** Authenticated
+- **Response (`200 OK`):** List of vehicles owned by the authenticated caller.
+
+### 4.2 Register Vehicle
+- **Method / Path:** `POST /api/v1/vehicles`
+- **Access Level:** Authenticated
 - **Request Body:**
 ```json
 {
   "registrationNumber": "MH 12 AB 3456",
   "vehicleType": "CAR",
   "widthM": 1.80,
-  "lengthM": 4.40,
+  "lengthM": 4.50,
   "isDefault": true
 }
 ```
 - **Response (`201 Created`):** Returns saved vehicle record with `normalizedRegistration: "MH12AB3456"`.
 
+### 4.3 Set Default Vehicle
+- **Method / Path:** `PUT /api/v1/vehicles/{id}/default`
+- **Access Level:** Authenticated
+
+### 4.4 Delete Vehicle
+- **Method / Path:** `DELETE /api/v1/vehicles/{id}`
+- **Access Level:** Authenticated
+
 ---
 
-## 6. Administration Endpoints (`/api/v1/admin`)
+## 5. Facility & Inventory Endpoints (`/api/v1/facilities`)
 
-### 6.1 Executive Dashboard Metrics
-- **Endpoint:** `GET /api/v1/admin/dashboard`
-- **Access:** `ROLE_ADMIN`
-- **Response (`200 OK`):**
-```json
-{
-  "totalFacilities": 4,
-  "totalSlots": 108,
-  "activeBookings": 0,
-  "totalCompletedBookings": 9,
-  "totalRevenueInr": 2100.00
-}
-```
+### 5.1 Search Facilities
+- **Method / Path:** `GET /api/v1/facilities`
+- **Access Level:** Public
+- **Query Parameters:** `city` (string), `search` (keyword)
+- **Response (`200 OK`):** List of active facilities.
 
-### 6.2 Override Slot Maintenance Status
-- **Endpoint:** `PUT /api/v1/admin/slots/{id}/status`
-- **Access:** `ROLE_ADMIN`
+### 5.2 Facility Detail
+- **Method / Path:** `GET /api/v1/facilities/{id}`
+- **Access Level:** Public
+- **Response (`200 OK`):** Facility metadata, pricing rules, operating hours, coordinates.
+
+### 5.3 Facility Floor & Bay Hierarchy
+- **Method / Path:** `GET /api/v1/facilities/{id}/floors`
+- **Access Level:** Public
+- **Response (`200 OK`):** Multi-level floor breakdown with nested parking slots.
+
+### 5.4 Query Live Slot Availability
+- **Method / Path:** `GET /api/v1/facilities/{id}/availability`
+- **Access Level:** Public
+- **Query Parameters:** `startTime` (ISO-8601), `endTime` (ISO-8601)
+- **Response (`200 OK`):** Available slot IDs for the requested time window.
+
+---
+
+## 6. Booking & Reservation Endpoints (`/api/v1/bookings`)
+
+### 6.1 Pre-Booking Price Quote
+- **Method / Path:** `POST /api/v1/bookings/quote`
+- **Access Level:** Authenticated (`ROLE_USER`)
 - **Request Body:**
 ```json
 {
-  "status": "OUT_OF_SERVICE"
+  "facilityId": "33333333-0000-4000-8000-000000000001",
+  "vehicleId": "5a14a1ef-6915-4b32-b2ea-7a07511ca3a2",
+  "startTime": "2026-11-03T10:00:00Z",
+  "endTime": "2026-11-03T14:00:00Z",
+  "accessibilityRequired": false,
+  "preferredSlotId": null,
+  "preferredFloorId": null
 }
 ```
-- **Response (`200 OK`):** Slot status updated in database.
+- **Response (`200 OK`):** Itemized tariff quotation, candidate slot preview, and dimension compatibility.
 
-### 6.3 Security Audit Trail Inspection
-- **Endpoint:** `GET /api/v1/admin/audit-logs`
-- **Access:** `ROLE_ADMIN`
-- **Response (`200 OK`):** Recent audit records with actor IDs and action metadata.
+### 6.2 Create Booking
+- **Method / Path:** `POST /api/v1/bookings`
+- **Access Level:** Authenticated (`ROLE_USER`)
+- **Request Body:**
+```json
+{
+  "facilityId": "33333333-0000-4000-8000-000000000001",
+  "vehicleId": "5a14a1ef-6915-4b32-b2ea-7a07511ca3a2",
+  "slotId": "33333333-0001-4000-8000-000000000011",
+  "startTime": "2026-11-03T10:00:00Z",
+  "endTime": "2026-11-03T14:00:00Z"
+}
+```
+- **Responses:**
+  - `201 Created`: Returns confirmed booking record with reference `SP-XXXXXXXX`.
+  - `409 Conflict`: Slot already booked (PostgreSQL GiST exclusion violation `23P01`).
+
+### 6.3 List Current User's Bookings
+- **Method / Path:** `GET /api/v1/bookings/me`
+- **Access Level:** Authenticated
+- **Query Parameters:** `status` (BookingStatus), `page` (int), `size` (int)
+
+### 6.4 Get User Booking Statistics
+- **Method / Path:** `GET /api/v1/bookings/me/stats`
+- **Access Level:** Authenticated
+- **Response (`200 OK`):** Total active, upcoming, completed, cancelled counts, and cumulative spend in INR.
+
+### 6.5 Get Booking Detail & QR Token
+- **Method / Path:** `GET /api/v1/bookings/{id}`
+- **Access Level:** Authenticated (Owner or Admin)
+- **Response (`200 OK`):** Detailed booking view including cryptographic QR verification token.
+
+### 6.6 Reschedule Booking
+- **Method / Path:** `PATCH /api/v1/bookings/{id}/reschedule`
+- **Access Level:** Authenticated (Owner or Admin)
+- **Request Body:**
+```json
+{
+  "startTime": "2026-11-03T11:00:00Z",
+  "endTime": "2026-11-03T15:00:00Z"
+}
+```
+
+### 6.7 Cancel Booking
+- **Method / Path:** `POST /api/v1/bookings/{id}/cancel`
+- **Access Level:** Authenticated (Owner or Admin)
+- **Request Body:**
+```json
+{
+  "reason": "Trip postponed"
+}
+```
+
+### 6.8 Gate Check-In
+- **Method / Path:** `POST /api/v1/bookings/{id}/check-in`
+- **Access Level:** Authenticated
+- **Request Body:**
+```json
+{
+  "token": "optional-qr-jwt-token"
+}
+```
+- **Response (`200 OK`):** Transitions status to `ACTIVE`.
+
+### 6.9 Gate Check-Out
+- **Method / Path:** `POST /api/v1/bookings/{id}/check-out`
+- **Access Level:** Authenticated
+- **Response (`200 OK`):** Transitions status to `COMPLETED`, evaluates overstay duration, and calculates overstay charge.
+
+---
+
+## 7. Administrative Command & Control Endpoints (`/api/v1/admin`)
+
+*All `/api/v1/admin/**` routes strictly require `ROLE_ADMIN` authorization.*
+
+### 7.1 Analytics & KPI Metrics
+- **Method / Path:** `GET /api/v1/admin/analytics`
+- **Query Parameters:** `from` (ISO-8601), `to` (ISO-8601)
+- **Response (`200 OK`):** Aggregated metrics (total slots, active parkers, revenue, cancellations) and daily trend points.
+
+### 7.2 Facility Infrastructure CRUD
+- `GET /api/v1/admin/facilities` — List all facilities (including inactive).
+- `GET /api/v1/admin/facilities/{id}` — Get facility admin details.
+- `POST /api/v1/admin/facilities` — Create facility (`201 Created`).
+- `PATCH /api/v1/admin/facilities/{id}` — Update facility parameters.
+- `DELETE /api/v1/admin/facilities/{id}` — Delete facility (`204 No Content`).
+
+### 7.3 Multi-Level Floor CRUD
+- `POST /api/v1/admin/facilities/{facilityId}/floors` — Add floor.
+- `PATCH /api/v1/admin/floors/{id}` — Update floor name/order.
+- `DELETE /api/v1/admin/floors/{id}` — Delete floor.
+
+### 7.4 Parking Bay CRUD & Maintenance
+- `POST /api/v1/admin/floors/{floorId}/slots` — Add bay.
+- `PATCH /api/v1/admin/slots/{id}` — Update bay attributes/status.
+- `DELETE /api/v1/admin/slots/{id}` — Delete bay.
+
+### 7.5 Pricing Rules CRUD
+- `POST /api/v1/admin/facilities/{facilityId}/pricing` — Add tariff rule.
+- `PATCH /api/v1/admin/pricing/{id}` — Update tariff rule.
+- `DELETE /api/v1/admin/pricing/{id}` — Delete tariff rule.
+
+### 7.6 Global Booking Management & Overstay Operations
+- `GET /api/v1/admin/bookings` — Search and filter all global bookings.
+- `GET /api/v1/admin/bookings/{id}` — View booking detail.
+- `POST /api/v1/admin/bookings/{id}/cancel` — Administrative cancellation.
+- `GET /api/v1/admin/overstay-dashboard` — View live vehicles overstaying, physical blockages, and unresolved conflicts.
+- `POST /api/v1/admin/bookings/{id}/resolve-conflict` — Manually reassign a blocked booking (`CONFLICT_REQUIRES_ADMIN`) to a selected vacant bay.
+
+### 7.7 User Administration
+- `GET /api/v1/admin/users` — Search user directory.
+- `PATCH /api/v1/admin/users/{id}/status` — Set account status (`ACTIVE` / `DISABLED`).
+- `PATCH /api/v1/admin/users/{id}/role` — Set user role (`USER` / `ADMIN`).
+
+### 7.8 Security Audit Trail
+- `GET /api/v1/admin/audit` — Paginated system audit logs with actor emails, action codes, and JSONB metadata.
+
+### 7.9 System Metadata Enums
+- `GET /api/v1/admin/meta` — Returns allowed enums (`SlotType`, `VehicleType`, `BookingStatus`).
