@@ -28,7 +28,7 @@
    - Module 4: Parking Bay Inventory & Interactive 2D Visualizer
    - Module 5: Vehicle Fleet & Dimensional Compatibility
    - Module 6: Booking, Dynamic Pricing & Quotation Engine
-   - Module 7: Gate Check-In, Check-Out & Cryptographic QR Verification
+   - Module 7: Gate Check-In, Check-Out & Digital Pass Verification
    - Module 8: Automated Lifecycle Management (No-Show, Overstay & Conflict Engine)
    - Module 9: Administrative Oversight, Operations Dashboard & Audit System
 5. [Database Architecture & Schema Specification](#5-database-architecture--schema-specification)
@@ -45,7 +45,7 @@
    - Vehicle Dimensions & Accessibility Matching Algorithm
    - Complete 9-State Booking Lifecycle Finite State Machine
    - Background Lifecycle Automation & Conflict Resolution Protocol
-   - Cryptographic Check-In & Check-Out QR Flow
+   - Gate Arrival Check-In & Departure Check-Out Flow
 7. [Security Hardening & Access Control](#7-security-hardening--access-control)
    - Authentication Architecture (JWT & Refresh Token Rotation)
    - Role-Based Authorization (RBAC) & IDOR Defense
@@ -94,7 +94,7 @@ SmartPark resolves these challenges through a unified, database-enforced archite
 - **Automated Lifecycle Sweeper:** An asynchronous scheduled background service checks reservations every 30 seconds, automatically flagging no-shows after facility grace periods (15 minutes), flagging overstays with penalty tariffs, and triggering automatic slot reassignments.
 - **Interactive 2D Floor Visualizer:** Real-time visual floor plans rendering slot categories (`STANDARD`, `COMPACT`, `LARGE`, `EV`, `ACCESSIBLE`, `MOTORCYCLE`), physical dimensions, charger availability, and live occupancy states.
 - **Transparent Multi-Tier Pricing Engine:** Deterministic hourly, daily, and flat tariff calculation with automated overstay penalty multipliers computed strictly on the backend.
-- **Cryptographic Gate Verification:** Signed HMAC-SHA256 QR passes for mobile entry and departure verification.
+- **Digital Gate Pass & Verification:** Official printable gate passes and verified arrival check-in with tamper-proof reference codes.
 - **Comprehensive Administrative Command Center:** Live facility configuration, multi-floor bay editing, overstay dashboard, manual conflict resolution, user role management, and immutable audit logs.
 
 ### Core Objectives & Project Scope
@@ -107,8 +107,8 @@ SmartPark resolves these challenges through a unified, database-enforced archite
 1. **Registered Vehicle Drivers (End Users):**
    - Discover facilities across Pune (Airport, Hinjewadi IT Park, Koregaon Park, Phoenix Marketcity).
    - Register personal vehicles with automatic license plate uppercase normalization and physical dimensions.
-   - Reserve compatible slots, receive server-calculated quotes, and obtain cryptographic QR tickets.
-   - Perform contactless check-in/check-out, monitor live countdown timers, reschedule, or cancel bookings.
+   - Reserve compatible slots, receive server-calculated quotes, and obtain official digital reservation passes with unique booking references.
+   - Perform self-service arrival check-in and checkout, monitor live countdown timers, reschedule, or cancel bookings.
 2. **Facility Operators & Administrators (Admins):**
    - Manage facility operational parameters, opening/closing hours, grace periods, and pricing rules.
    - Create, edit, and toggle maintenance status (`AVAILABLE` vs `OUT_OF_SERVICE`) for individual bays.
@@ -256,7 +256,7 @@ SmartPark is architected into **9 verified, production-grade functional modules*
 |    & Security     |    & Activity Log   |    & Operations    |    & 2D Visualizer |    Management |
 +-------------------+---------------------+--------------------+--------------------+---------------+
 | 6. Booking & Price| 7. Gate Check-In/Out| 8. Automated       | 9. Admin Operations|               |
-|    Quotation      |    & QR Pass Ticket |    Lifecycle Engine|    & Audit Trail   |               |
+|    Quotation      |    & Gate Pass Pass  |    Lifecycle Engine|    & Audit Trail   |               |
 +-------------------+---------------------+--------------------+--------------------+---------------+
 ```
 
@@ -332,14 +332,14 @@ SmartPark is architected into **9 verified, production-grade functional modules*
   - Booking reschedule endpoint allowing drivers to shift time windows subject to re-evaluated slot availability.
   - User booking dashboard statistics (`GET /api/v1/bookings/me/stats`): active counts, upcoming counts, completed trips, cancelled bookings, and cumulative expenditure.
 
-### Module 7: Gate Check-In, Check-Out & Cryptographic QR Verification
+### Module 7: Gate Check-In, Check-Out & Digital Pass Verification
 - **Package:** `com.smartpark.booking`
 - **Frontend Page:** `BookingDetail.tsx`
 - **Key Files:** `BookingController.java`, `BookingService.java`, `CheckIn.java`, `CheckInRepository.java`
 - **Database Tables:** `check_ins`, `bookings`
 - **Capabilities:**
-  - Generation of cryptographically signed HMAC-SHA256 QR pass tokens encapsulating booking reference, user ID, slot ID, and timestamp window.
-  - Driver self-service or gate scanner arrival verification (`POST /api/v1/bookings/{id}/check-in`). Validates that booking is `CONFIRMED` and arrival is within the allowable window.
+  - Issuance of official digital reservation passes displaying allocated bay code (`slotCode`), floor, vehicle registration, unique alphanumeric booking reference, and browser printable gate slip (`window.print()`).
+  - Driver self-service or gate barrier arrival verification (`POST /api/v1/bookings/{id}/check-in`). Validates that booking is `CONFIRMED` and arrival is within the allowable window.
   - Gate departure checkout (`POST /api/v1/bookings/{id}/check-out`): records check-out timestamp, transitions booking to `COMPLETED`, evaluates overstay duration, calculates overstay surcharge, and logs final billing.
 
 ### Module 8: Automated Lifecycle Management (No-Show, Overstay & Conflict Engine)
@@ -1120,14 +1120,15 @@ public void advanceLifecycle() {
 
 ---
 
-### G. Cryptographic Check-In & Check-Out QR Flow
-- **Ticket Generation:** Upon booking confirmation, the server generates a signed HMAC-SHA256 token encoding `{ "ref": "SP-XXXX", "bId": "<UUID>", "sId": "<UUID>", "exp": ... }`.
-- **Pass Display:** The frontend renders an interactive SVG QR code with driver name, vehicle license plate, bay code, and live countdown timer.
-- **Entry Gate Validation:**
-  - Gate camera or tablet scans the QR code.
-  - Backend verifies token signature, checks that current time is within $[T_{\text{start}} - 30\text{min}, T_{\text{start}} + \text{grace\_period}]$, creates a row in `check_ins`, and transitions booking to `ACTIVE`.
-- **Exit Gate Validation:**
-  - Upon checkout request, the system retrieves the `check_in` row, sets `check_out_time = now()`, calculates any overstay penalty, updates booking status to `COMPLETED`, and releases the slot.
+### G. Gate Arrival Check-In & Departure Check-Out Flow
+- **Pass Issuance:** Upon booking confirmation, the server issues a confirmed reservation with an alphanumeric reference code (e.g., `BK-8D41C02B`). The frontend renders an official digital reservation pass displaying slot code, floor name, vehicle registration number, active status badge, and duration.
+- **Printable Gate Slip:** Drivers can click "Print Pass" (`window.print()`) for an official hardcopy gate slip or download an RFC 5545 iCalendar (`.ics`) reminder with automated arrival alerts.
+- **Entry Gate Check-In:**
+  - Driver self-service check-in activates 30 minutes prior to scheduled start time up until the facility grace limit (15 minutes after start).
+  - Alternatively, gate attendants or facility administrators can confirm arrival directly via the admin console.
+  - Backend records arrival in the `check_ins` table (`verification_method` = `MANUAL` or `ADMIN`), transitions status from `CONFIRMED` to `ACTIVE`, and initiates real-time session tracking.
+- **Exit Gate Checkout:**
+  - Upon checkout invocation, the backend locates the active `check_ins` record, sets `check_out_time = now()`, calculates any overstay duration and penalty charges ($1.50\times$ multiplier) if departure exceeded the scheduled window, transitions status to `COMPLETED`, and immediately liberates the bay for subsequent reservations.
 
 ---
 
@@ -1241,7 +1242,7 @@ In `SmartParkIntegrationTest.java`, the concurrency test spawns **10 concurrent 
 ## 10. Limitations & Academic Project Roadmap
 
 ### Current System Boundaries (Academic Transparency)
-1. **Automated ANPR (Automatic Number Plate Recognition):** Check-in operates via mobile QR scan or admin manual verification; hardware integration with physical OCR ANPR cameras is designated as future work.
+1. **Automated ANPR (Automatic Number Plate Recognition):** Check-in operates via digital gate pass verification or administrative confirmation; hardware integration with physical OCR ANPR cameras and automated boom barriers is designated as future work.
 2. **Payment Processing Settlement:** SmartPark computes, verifies, locks, and audits real transaction tariffs in INR, but operates in demonstration settlement mode without an external commercial payment gateway (e.g. Razorpay/Stripe webhook).
 3. **Seeded Geographic Scope:** Currently configured with 4 comprehensive facilities in Pune (Airport, Hinjewadi IT Park, Koregaon Park, Phoenix Marketcity).
 
