@@ -1,7 +1,8 @@
 -- Flyway Migration V4: No-Show, Overstay and Conflict Management
 -- PostgreSQL 16+
 
--- 1. Update bookings status check constraint to include OVERSTAY, NO_SHOW, CONFLICT_REQUIRES_ADMIN
+-- 1. Update bookings status column length and check constraint to include OVERSTAY, NO_SHOW, CONFLICT_REQUIRES_ADMIN
+ALTER TABLE bookings ALTER COLUMN status TYPE VARCHAR(30);
 ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check;
 ALTER TABLE bookings DROP CONSTRAINT IF EXISTS chk_bookings_status;
 ALTER TABLE bookings ADD CONSTRAINT chk_bookings_status

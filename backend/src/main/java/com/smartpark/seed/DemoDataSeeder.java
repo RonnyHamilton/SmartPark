@@ -137,6 +137,26 @@ public class DemoDataSeeder implements CommandLineRunner {
                 at(today.plusDays(2), 8, 30), at(today.plusDays(2), 17, 30),
                 new BigDecimal("315.00"), "SP-DEMO0008", "Upcoming office day."));
 
+        Booking overstay = booking(second, secondCar, phoenixSlots.get(2), BookingStatus.OVERSTAY,
+                now.minus(Duration.ofMinutes(180)), now.minus(Duration.ofMinutes(45)),
+                new BigDecimal("120.00"), "SP-DEMO0009", "Overstaying vehicle — 45 min late, penalty accumulating.");
+        overstay.setOverstayStartTime(now.minus(Duration.ofMinutes(45)));
+        overstay.setOverstayDurationMinutes(45);
+        overstay.setOverstayCharge(new BigDecimal("90.00"));
+        bookingRepository.saveAndFlush(overstay);
+        CheckIn checkInOverstay = new CheckIn();
+        checkInOverstay.setBooking(overstay);
+        checkInOverstay.setCheckInTime(now.minus(Duration.ofMinutes(175)));
+        checkInOverstay.setVerificationMethod("QR");
+        checkInRepository.save(checkInOverstay);
+
+        Booking noShow = booking(second, secondCar, techSlots.get(1), BookingStatus.NO_SHOW,
+                now.minus(Duration.ofHours(3)), now.minus(Duration.ofHours(1)),
+                new BigDecimal("70.00"), "SP-DEMO0010", "Initial reservation hold.");
+        noShow.setNoShowDetectedAt(now.minus(Duration.ofHours(2).plus(Duration.ofMinutes(45))));
+        noShow.setCancellationReason("Customer did not arrive within the 15-minute check-in grace period. Bay liberated for other drivers.");
+        bookingRepository.save(noShow);
+
         log.info("Seeded demo users: admin@smartpark.local / Admin@12345! and demo@smartpark.local / Demo@12345!");
     }
 
